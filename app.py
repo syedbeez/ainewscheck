@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import asyncio
 import matplotlib.pyplot as plt
+import pickle
 from pymongo import MongoClient
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
