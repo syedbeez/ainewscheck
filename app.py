@@ -1,34 +1,45 @@
 import streamlit as st
-import requests
 import pickle
-import shap
-from bs4 import BeautifulSoup
+from sklearn.feature_extraction.text import TfidfVectorizer
 from pymongo import MongoClient
 
-#Load Model and Vectorizer
-model = pickle.load(open("model.pkl", "rb"))
-vectorizer = pickle.load(open("tfidf.pkl", "rb"))
-explainer = pickle.load(open("shap_explainer.pkl", "rb"))
+# Load trained model and vectorizer
+with open("vectorizer.pkl", "rb") as f:
+    vectorizer = pickle.load(f)
+with open("model.pkl", "rb") as f:
+    model = pickle.load(f)
 
-st.title("Fake News Detector")
-url = st.text_input("Enter News URL")
-user_text = st.text_area("Or Enter News Text Directly")
-
+# MongoDB connection
 client = MongoClient("mongodb+srv://albeezsyedabdallah:Albeez_2001@fakenewscluster.tw442cb.mongodb.net/?retryWrites=true&w=majority&appName=FakeNewsCluster")
-db = client["FakeNewsDB"]
-collection = db["NewsArticles"]
+db = client["news_db"]
+collection = db["news_results"]
 
+# Function to scrape news (ensure it returns valid text)
 def scrape_news(url):
-    response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-    soup = BeautifulSoup(response.text, 'html.parser')
-    return " ".join([h2.get_text(strip=True) for h2 in soup.find_all('h2')])
- 
+    # Implement proper scraping logic here
+    return "Sample scraped text from the URL"  # Replace with actual scraper
+
+# Streamlit UI
+st.title("Fake News Detector")
+
+url = st.text_input("Enter News URL:")
+user_text = st.text_area("Or enter the news text:")
+
 if st.button("Analyze"):
     text = user_text if user_text else scrape_news(url)
-    transformed_text = vectorizer.transform([text])
+    
+    if not text.strip():
+        st.error("No text found. Please enter valid text or URL.")
+        st.stop()
+
+    transformed_text = vectorizer.transform([text])  # Ensure correct vectorizer
+    if transformed_text.shape[1] != model.n_features_in_:
+        st.error(f"Feature mismatch: expected {model.n_features_in_}, but got {transformed_text.shape[1]}")
+        st.stop()
+
     prediction = model.predict(transformed_text)[0]
     result = "Yes" if prediction == 1 else "No"
+
     st.write(f"Fake News: {result}")
     collection.insert_one({"text": text, "result": result})
-    shap_values = explainer(transformed_text)
-    shap.summary_plot(shap_values, transformed_text)
+
