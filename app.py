@@ -1,68 +1,68 @@
-import streamlit as st
-import shap
-import torch
-import numpy as np
-import asyncio
-import matplotlib.pyplot as plt
-import pickle
-from pymongo import MongoClient
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
 
-# Fix "no running event loop" issue
+import asyncio
 try:
     asyncio.get_running_loop()
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
+
+import streamlit as st
+import shap
+import matplotlib.pyplot as plt
+import numpy as np
+from newspaper import Article
+from pymongo import MongoClient
+from sklearn.feature_extraction.text import TfidfVectorizer
+import joblib
+
+# Load trained model and vectorizer
+model = joblib.load("model.pkl")
+vectorizer = joblib.load("tfidf.pkl")
 
 # Connect to MongoDB
 client = MongoClient("mongodb+srv://albeezsyedabdallah:Albeez_2001@fakenewscluster.tw442cb.mongodb.net/?retryWrites=true&w=majority&appName=FakeNewsCluster")
 db = client["news_db"]
 collection = db["news_results"]
 
-# Load your trained model & vectorizer
-vectorizer = TfidfVectorizer()
-model = LogisticRegression()
-
-# Load actual data (replace with your dataset loading process)
-with open("tfidf.pkl", "rb") as f:
-    vectorizer = pickle.load(f)
-
-with open("model.pkl", "rb") as f:
-    model = pickle.load(f)
-
 # Streamlit UI
-st.title("AI News Check - Fake News Detection")
+st.title("AI-Powered News Verifier 📰")
 
-# User input
-text = st.text_area("Enter news text:", "")
+# User input: URL or text
+input_type = st.radio("Choose input type:", ("Enter Text", "Enter URL"))
 
-if st.button("Check Authenticity"):
+if input_type == "Enter URL":
+    url = st.text_input("Paste the article URL:")
+    text = ""
+    if st.button("Fetch & Analyze"):
+        if url:
+            try:
+                article = Article(url)
+                article.download()
+                article.parse()
+                text = article.text
+                st.write("Extracted Text:", text[:500] + "...")
+            except Exception as e:
+                st.error(f"Failed to extract article: {e}")
+else:
+    text = st.text_area("Enter news text:")
+
+if text:
+    # Preprocess input
     transformed_text = vectorizer.transform([text])
 
-    # Fix shape mismatch for SHAP explainability
-    expected_shape = model.coef_.shape[1]  # Model expects same number of features
-    input_shape = transformed_text.shape[1]
-
-    if input_shape < expected_shape:
-        padding = np.zeros((1, expected_shape - input_shape))  # Add zero padding
-        transformed_text = np.hstack((transformed_text.toarray(), padding))
-    else:
-        transformed_text = transformed_text[:, :expected_shape]  # Trim excess features
-
+    # Predict
     result = model.predict(transformed_text)
-    probability = model.predict_proba(transformed_text)[0][1]
+    confidence = model.predict_proba(transformed_text).max()
 
-    st.subheader("Prediction Result:")
-    st.write("✅ **Real News**" if result[0] == 1 else "❌ **Fake News**")
-    st.write(f"Confidence Score: {probability:.2f}")
+    # Store in database
+    collection.insert_one({"text": text, "result": int(result[0]), "confidence": confidence})
 
-    # Save result to MongoDB
-    collection.insert_one({"text": text, "result": int(result[0]), "confidence": float(probability)})
+    # Display result
+    label = "Real" if result[0] == 1 else "Fake"
+    st.subheader(f"Prediction: **{label}** (Confidence: {confidence:.2f})")
 
     # Explainability with SHAP
-    explainer = shap.Explainer(model, vectorizer.transform(["sample text"]))  # Use sample input
-    shap_values = explainer(transformed_text)
+    explainer = shap.LinearExplainer(model, vectorizer, feature_perturbation="interventional")
+    shap_values = explainer.shap_values(transformed_text)
 
     st.subheader("Explainability: Important Words in the Prediction")
     fig, ax = plt.subplots()
