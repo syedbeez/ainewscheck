@@ -10,3 +10,4 @@ shap
 streamlit
 newspaper3k
 matplotlib
+lxml_html_clean
