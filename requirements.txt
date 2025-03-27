@@ -7,5 +7,5 @@ pymongo
 requests
 beautifulsoup4
 shap
-pickle5
+pickle
 streamlit
