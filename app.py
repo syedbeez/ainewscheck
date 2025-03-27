@@ -2,8 +2,11 @@ import streamlit as st
 import pickle
 import torch
 import numpy as np
+import shap
+import matplotlib.pyplot as plt
 from transformers import BertTokenizer, BertModel
 from pymongo import MongoClient
+from newspaper import Article
 
 # Load TF-IDF vectorizer and trained model
 with open("tfidf.pkl", "rb") as f:
@@ -28,19 +31,37 @@ def get_bert_embedding(text):
         outputs = bert_model(**tokens)
     return outputs.last_hidden_state[:, 0, :].numpy().flatten()
 
+# Function to extract news from a URL
+def scrape_news(url):
+    try:
+        article = Article(url)
+        article.download()
+        article.parse()
+        return article.text
+    except Exception as e:
+        return None
+
 # Streamlit UI
-st.title("Fake News Detector")
+st.title("Fake News Detector with Explainability")
 
 url = st.text_input("Enter News URL:")
 user_text = st.text_area("Or enter the news text:")
 
 if st.button("Analyze"):
-    text = user_text.strip()
+    # Check if URL is given
+    if url.strip():
+        text = scrape_news(url.strip())
+        if not text:
+            st.error("Unable to extract news from the provided URL. Please check the link.")
+            st.stop()
+    else:
+        text = user_text.strip()
     
+    # Ensure text is provided
     if not text:
-        st.error("Please enter valid news text.")
+        st.error("Please enter valid news text or a news URL.")
         st.stop()
-    
+
     # Transform input using trained TF-IDF vectorizer
     transformed_text = vectorizer.transform([text]).toarray()
 
@@ -62,3 +83,12 @@ if st.button("Analyze"):
     # Display result
     st.write(f"Prediction: {result}")
     collection.insert_one({"text": text, "result": result})
+
+    # Explainability using SHAP
+    explainer = shap.Explainer(model, transformed_text)
+    shap_values = explainer(transformed_text)
+
+    st.subheader("Explainability: Important Words in the Prediction")
+    fig, ax = plt.subplots()
+    shap.summary_plot(shap_values, transformed_text, feature_names=vectorizer.get_feature_names_out(), show=False)
+    st.pyplot(fig)
