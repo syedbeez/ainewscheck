@@ -42,4 +42,3 @@ if st.button("Analyze"):
 
     st.write(f"Fake News: {result}")
     collection.insert_one({"text": text, "result": result})
-
