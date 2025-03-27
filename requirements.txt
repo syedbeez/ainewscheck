@@ -9,3 +9,4 @@ beautifulsoup4
 shap
 streamlit
 newspaper3k
+matplotlib
