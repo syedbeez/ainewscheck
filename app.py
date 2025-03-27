@@ -79,9 +79,3 @@ if text and st.button("Predict"):
     }
     collection.insert_one(doc)
     st.success("Saved to MongoDB!")
-
-# Show past results
-st.subheader("Recent Predictions")
-past_results = collection.find().sort("timestamp", -1).limit(5)
-for entry in past_results:
-    st.write(f"🕒 {entry['timestamp']} - **{entry['prediction']}** (Confidence: {entry['confidence']:.2f})")
