@@ -79,7 +79,7 @@ if text and st.button("Predict"):
 
         # LIME Explanation
         explainer = lime.lime_text.LimeTextExplainer(class_names=["Real", "Fake"])
-        explanation = explainer.explain_instance(text, lambda x: model.predict_proba(np.array(x).reshape(-1, 1)))
+        explanation = explainer.explain_instance(text, lambda x: model.predict_proba(vectorizer.transform(x)))
 
 
 
