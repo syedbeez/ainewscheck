@@ -24,7 +24,7 @@ vectorizer = TfidfVectorizer()
 model = LogisticRegression()
 
 # Load actual data (replace with your dataset loading process)
-with open("vectorizer.pkl", "rb") as f:
+with open("tfidf.pkl", "rb") as f:
     vectorizer = pickle.load(f)
 
 with open("model.pkl", "rb") as f:
