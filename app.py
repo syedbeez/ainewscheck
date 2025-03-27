@@ -1,4 +1,3 @@
-
 import asyncio
 try:
     asyncio.get_running_loop()
@@ -30,20 +29,26 @@ st.title("Fake News Detector 📰")
 # Choose input method
 input_type = st.radio("Select Input Type:", ["Enter Text", "Enter URL"])
 
-text = ""
+# Initialize session state for text
+if "article_text" not in st.session_state:
+    st.session_state["article_text"] = ""
+
 if input_type == "Enter Text":
-    text = st.text_area("Enter news text:")
-elif input_type == "Enter URL":
+    text = st.text_area("Enter news text:", value=st.session_state["article_text"])
+else:
     url = st.text_input("Enter article URL:")
     if st.button("Fetch Article") and url:
         try:
             article = Article(url)
             article.download()
             article.parse()
-            text = article.text
-            st.success("Article extracted!")
+            st.session_state["article_text"] = article.text  # Store in session state
+            st.success("Article extracted! Now click 'Predict'.")
         except Exception as e:
             st.error(f"Error fetching article: {e}")
+
+# Use session state text for prediction
+text = st.session_state["article_text"]
 
 # Predict button
 if text and st.button("Predict"):
