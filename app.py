@@ -5,66 +5,83 @@ try:
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
+import pickle
 import streamlit as st
-import shap
-import matplotlib.pyplot as plt
 import numpy as np
 from newspaper import Article
+import lime.lime_text
 from pymongo import MongoClient
-from sklearn.feature_extraction.text import TfidfVectorizer
-import joblib
+import datetime
 
-# Load trained model and vectorizer
-model = joblib.load("model.pkl")
-vectorizer = joblib.load("tfidf.pkl")
+# Load the vectorizer and model
+with open("tfidf.pkl", "rb") as f:
+    vectorizer = pickle.load(f)
 
-# Connect to MongoDB
+with open("model.pkl", "rb") as f:
+    model = pickle.load(f)
+
+# MongoDB Connection
 client = MongoClient("mongodb+srv://albeezsyedabdallah:Albeez_2001@fakenewscluster.tw442cb.mongodb.net/?retryWrites=true&w=majority&appName=FakeNewsCluster")
 db = client["news_db"]
 collection = db["news_results"]
 
-# Streamlit UI
-st.title("AI-Powered News Verifier 📰")
+st.title("Fake News Detector 📰")
 
-# User input: URL or text
-input_type = st.radio("Choose input type:", ("Enter Text", "Enter URL"))
+# Choose input method
+input_type = st.radio("Select Input Type:", ["Enter Text", "Enter URL"])
 
-if input_type == "Enter URL":
-    url = st.text_input("Paste the article URL:")
-    text = ""
-    if st.button("Fetch & Analyze"):
-        if url:
-            try:
-                article = Article(url)
-                article.download()
-                article.parse()
-                text = article.text
-                st.write("Extracted Text:", text[:500] + "...")
-            except Exception as e:
-                st.error(f"Failed to extract article: {e}")
-else:
+text = ""
+if input_type == "Enter Text":
     text = st.text_area("Enter news text:")
+elif input_type == "Enter URL":
+    url = st.text_input("Enter article URL:")
+    if st.button("Fetch Article") and url:
+        try:
+            article = Article(url)
+            article.download()
+            article.parse()
+            text = article.text
+            st.success("Article extracted!")
+        except Exception as e:
+            st.error(f"Error fetching article: {e}")
 
-if text:
-    # Preprocess input
+# Predict button
+if text and st.button("Predict"):
+    # Transform input text
     transformed_text = vectorizer.transform([text])
 
     # Predict
-    result = model.predict(transformed_text)
+    prediction = model.predict(transformed_text)[0]
     confidence = model.predict_proba(transformed_text).max()
 
-    # Store in database
-    collection.insert_one({"text": text, "result": int(result[0]), "confidence": confidence})
+    # Labels
+    label = "🛑 Fake News" if prediction == 1 else "✅ Real News"
 
-    # Display result
-    label = "Real" if result[0] == 1 else "Fake"
-    st.subheader(f"Prediction: **{label}** (Confidence: {confidence:.2f})")
+    # Show prediction
+    st.subheader("Prediction Result:")
+    st.write(f"**{label}** (Confidence: {confidence:.2f})")
 
-    # Explainability with SHAP
-    explainer = shap.LinearExplainer(model, vectorizer, feature_perturbation="interventional")
-    shap_values = explainer.shap_values(transformed_text)
+    # LIME Explanation
+    explainer = lime.lime_text.LimeTextExplainer(class_names=["Real", "Fake"])
+    explanation = explainer.explain_instance(text, model.predict_proba, num_features=5)
+    
+    st.subheader("Explainability (LIME):")
+    st.write(explanation.as_list())
+    st.pyplot(explanation.as_pyplot_figure())
 
-    st.subheader("Explainability: Important Words in the Prediction")
-    fig, ax = plt.subplots()
-    shap.summary_plot(shap_values, transformed_text, feature_names=vectorizer.get_feature_names_out(), show=False)
-    st.pyplot(fig)
+    # Save to MongoDB
+    doc = {
+        "input": text[:500],  # Store first 500 characters
+        "prediction": label,
+        "confidence": confidence,
+        "explanation": explanation.as_list(),
+        "timestamp": datetime.datetime.utcnow()
+    }
+    collection.insert_one(doc)
+    st.success("Saved to MongoDB!")
+
+# Show past results
+st.subheader("Recent Predictions")
+past_results = collection.find().sort("timestamp", -1).limit(5)
+for entry in past_results:
+    st.write(f"🕒 {entry['timestamp']} - **{entry['prediction']}** (Confidence: {entry['confidence']:.2f})")
