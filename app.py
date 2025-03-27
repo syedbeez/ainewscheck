@@ -1,9 +1,3 @@
-import asyncio
-try:
-    asyncio.get_running_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-
 import pickle
 import streamlit as st
 import numpy as np
@@ -11,8 +5,9 @@ from newspaper import Article
 import lime.lime_text
 from pymongo import MongoClient
 import datetime
+from scipy.sparse import hstack, csr_matrix
 
-# Load the vectorizer and model
+# Load vectorizer and model
 with open("tfidf.pkl", "rb") as f:
     vectorizer = pickle.load(f)
 
@@ -24,9 +19,9 @@ client = MongoClient("mongodb+srv://albeezsyedabdallah:Albeez_2001@fakenewsclust
 db = client["news_db"]
 collection = db["news_results"]
 
-st.title("Fake News Detector 📰")
+st.title("📰 Fake News Detector")
 
-# Choose input method
+# Choose input type
 input_type = st.radio("Select Input Type:", ["Enter Text", "Enter URL"])
 
 # Initialize session state for text
@@ -42,7 +37,7 @@ else:
             article = Article(url)
             article.download()
             article.parse()
-            st.session_state["article_text"] = article.text  # Store in session state
+            st.session_state["article_text"] = article.text
             st.success("Article extracted! Now click 'Predict'.")
         except Exception as e:
             st.error(f"Error fetching article: {e}")
@@ -52,35 +47,51 @@ text = st.session_state["article_text"]
 
 # Predict button
 if text and st.button("Predict"):
-    # Transform input text
-    transformed_text = vectorizer.transform([text])
+    if not text.strip():
+        st.error("Please enter or fetch some text before predicting.")
+    else:
+        # Transform text
+        transformed_text = vectorizer.transform([text])  
+        
+        # Get feature counts
+        model_features = model.n_features_in_
+        vectorizer_features = transformed_text.shape[1]
 
-    # Predict
-    prediction = model.predict(transformed_text)[0]
-    confidence = model.predict_proba(transformed_text).max()
+        # Dynamically match features
+        if vectorizer_features < model_features:
+            # Pad with zeros if features are less
+            padding = csr_matrix((1, model_features - vectorizer_features))
+            transformed_text = hstack([transformed_text, padding])
+        elif vectorizer_features > model_features:
+            # Trim extra features if needed
+            transformed_text = transformed_text[:, :model_features]
 
-    # Labels
-    label = "🛑 Fake News" if prediction == 1 else "✅ Real News"
+        # Predict
+        prediction = model.predict(transformed_text)[0]
+        confidence = model.predict_proba(transformed_text).max()
 
-    # Show prediction
-    st.subheader("Prediction Result:")
-    st.write(f"**{label}** (Confidence: {confidence:.2f})")
+        # Labels
+        label = "🛑 Fake News" if prediction == 1 else "✅ Real News"
 
-    # LIME Explanation
-    explainer = lime.lime_text.LimeTextExplainer(class_names=["Real", "Fake"])
-    explanation = explainer.explain_instance(text, model.predict_proba, num_features=5)
-    
-    st.subheader("Explainability (LIME):")
-    st.write(explanation.as_list())
-    st.pyplot(explanation.as_pyplot_figure())
+        # Show prediction
+        st.subheader("Prediction Result:")
+        st.write(f"**{label}** (Confidence: {confidence:.2f})")
 
-    # Save to MongoDB
-    doc = {
-        "input": text[:500],  # Store first 500 characters
-        "prediction": label,
-        "confidence": confidence,
-        "explanation": explanation.as_list(),
-        "timestamp": datetime.datetime.utcnow()
-    }
-    collection.insert_one(doc)
-    st.success("Saved to MongoDB!")
+        # LIME Explanation
+        explainer = lime.lime_text.LimeTextExplainer(class_names=["Real", "Fake"])
+        explanation = explainer.explain_instance(text, model.predict_proba, num_features=5)
+
+        st.subheader("Explainability (LIME):")
+        st.write(explanation.as_list())
+        st.pyplot(explanation.as_pyplot_figure())
+
+        # Save to MongoDB
+        doc = {
+            "input": text[:500],  # Store first 500 characters
+            "prediction": label,
+            "confidence": confidence,
+            "explanation": explanation.as_list(),
+            "timestamp": datetime.datetime.utcnow()
+        }
+        collection.insert_one(doc)
+        st.success("Saved to MongoDB!")
